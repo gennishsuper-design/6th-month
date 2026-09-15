@@ -1,23 +1,17 @@
 from django.contrib import admin
 
-from .models import Category, Product, Review
+from .models import Comment, Post
 
 
-@admin.register(Category)
-class CategoryAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name')
-    search_fields = ('name',)
+@admin.register(Post)
+class PostAdmin(admin.ModelAdmin):
+    list_display = ('id', 'title', 'author', 'is_published', 'created_at')
+    list_filter = ('is_published', 'created_at')
+    search_fields = ('title', 'body', 'author__username')
 
 
-@admin.register(Product)
-class ProductAdmin(admin.ModelAdmin):
-    list_display = ('id', 'title', 'price', 'category')
-    list_filter = ('category',)
-    search_fields = ('title', 'description')
-
-
-@admin.register(Review)
-class ReviewAdmin(admin.ModelAdmin):
-    list_display = ('id', 'product', 'text')
-    list_filter = ('product',)
-    search_fields = ('text',)
+@admin.register(Comment)
+class CommentAdmin(admin.ModelAdmin):
+    list_display = ('id', 'post', 'author', 'is_approved', 'created_at')
+    list_filter = ('is_approved', 'created_at')
+    search_fields = ('body', 'author__username', 'post__title')

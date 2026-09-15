@@ -1,4 +1,3 @@
-from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.contrib.auth import get_user_model
 
@@ -6,38 +5,25 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 
-class Category(models.Model):
-    name = models.CharField(max_length=255)
-
-    def __str__(self):
-        return self.name
-
-
-class Product(models.Model):
+class Post(models.Model):
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='posts')
     title = models.CharField(max_length=255)
-    description = models.TextField()
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='products')
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_published = models.BooleanField(default=False)
 
     def __str__(self):
         return self.title
 
 
-class Review(models.Model):
-    text = models.TextField()
-    stars = models.PositiveSmallIntegerField(
-        validators=[MinValueValidator(1), MaxValueValidator(5)]
-    )
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='reviews')
-
-    def __str__(self):
-        return self.text[:50]
-
-
-class Confirmation(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='confirmation')
-    code = models.CharField(max_length=6)
+class Comment(models.Model):
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='comments')
+    body = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    is_approved = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"Confirmation for {self.user.username}: {self.code}"
+        return self.body[:50]
