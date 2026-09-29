@@ -7,11 +7,11 @@ from .models import Comment, Post
 class PostAdmin(admin.ModelAdmin):
     list_display = ('id', 'title', 'author', 'is_published', 'created_at')
     list_filter = ('is_published', 'created_at')
-    search_fields = ('title', 'body', 'author__username')
+    search_fields = ('title', 'body', 'author__email')
 
 
 @admin.register(Comment)
 class CommentAdmin(admin.ModelAdmin):
     list_display = ('id', 'post', 'author', 'is_approved', 'created_at')
     list_filter = ('is_approved', 'created_at')
-    search_fields = ('body', 'author__username', 'post__title')
+    search_fields = ('body', 'author__email', 'post__title')

@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -10,8 +11,8 @@ User = get_user_model()
 
 class BlogAPITest(APITestCase):
     def setUp(self):
-        self.author = User.objects.create_user(username='author', password='pass12345')
-        self.other_user = User.objects.create_user(username='other', password='pass12345')
+        self.author = User.objects.create_user(email='author@example.com', password='pass12345')
+        self.other_user = User.objects.create_user(email='other@example.com', password='pass12345')
         self.published_post = Post.objects.create(
             author=self.author,
             title='Published post',
@@ -115,3 +116,73 @@ class BlogAPITest(APITestCase):
         response = self.client.patch(url, {'body': 'Changed'}, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class UserAuthAPITest(APITestCase):
+    def test_registration_allows_missing_phone_number(self):
+        response = self.client.post(
+            reverse('api-register'),
+            {'email': 'new@example.com', 'password': 'SafePass12345!'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        user = User.objects.get(email='new@example.com')
+        self.assertEqual(user.phone_number, '')
+        self.assertFalse(user.is_superuser)
+
+    def test_registration_rejects_phone_number_without_996_prefix(self):
+        response = self.client.post(
+            reverse('api-register'),
+            {
+                'email': 'new@example.com',
+                'password': 'SafePass12345!',
+                'phone_number': '+12345678901',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('phone_number', response.data)
+
+    def test_login_uses_email_and_returns_auth_token(self):
+        User.objects.create_user(email='login@example.com', password='SafePass12345!')
+
+        response = self.client.post(
+            reverse('api-login'),
+            {'email': 'login@example.com', 'password': 'SafePass12345!'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('token', response.data)
+
+    def test_superuser_requires_a_valid_phone_number(self):
+        with self.assertRaisesMessage(ValueError, 'A phone number is required'):
+            User.objects.create_superuser(email='root@example.com', password='SafePass12345!')
+
+        with self.assertRaises(ValidationError):
+            User.objects.create_superuser(
+                email='root@example.com',
+                password='SafePass12345!',
+                phone_number='123456789',
+            )
+
+        root = User.objects.create_superuser(
+            email='root@example.com',
+            password='SafePass12345!',
+            phone_number='+996555123456',
+        )
+        self.assertTrue(root.is_superuser)
+
+    def test_custom_user_admin_page_uses_email_account(self):
+        admin_user = User.objects.create_superuser(
+            email='admin@example.com',
+            password='SafePass12345!',
+            phone_number='+996555123456',
+        )
+        self.client.force_login(admin_user)
+
+        response = self.client.get('/admin/users/user/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

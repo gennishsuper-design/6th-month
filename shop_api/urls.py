@@ -18,14 +18,12 @@ from django.contrib import admin
 from django.urls import include, path
 from django.views.generic.base import RedirectView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
-from rest_framework.authtoken.views import obtain_auth_token
 
 
 urlpatterns = [
     path('', RedirectView.as_view(url='/admin/'), name='home'),
     path('admin/', admin.site.urls),
     path('', include('product.urls')),
-    path('api/v1/auth/token/', obtain_auth_token, name='api-token'),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
