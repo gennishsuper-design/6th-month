@@ -1,6 +1,7 @@
 from rest_framework import generics, permissions
-from rest_framework.authentication import TokenAuthentication
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from common.validators import validate_product_creator_age
 from .models import Comment, Post, Product
 from .serializers import CommentSerializer, PostSerializer, ProductSerializer
 
@@ -26,7 +27,7 @@ class IsModerator(permissions.BasePermission):
 
 class PostListCreateView(generics.ListCreateAPIView):
     serializer_class = PostSerializer
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
@@ -41,7 +42,7 @@ class PostListCreateView(generics.ListCreateAPIView):
 
 class PostDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = PostSerializer
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
     queryset = Post.objects.select_related('author').prefetch_related('comments__author')
 
@@ -54,7 +55,7 @@ class PostDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class CommentListCreateView(generics.ListCreateAPIView):
     serializer_class = CommentSerializer
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
 
     def get_queryset(self):
         queryset = Comment.objects.select_related('author', 'post').filter(post_id=self.kwargs['post_id'])
@@ -74,7 +75,7 @@ class CommentListCreateView(generics.ListCreateAPIView):
 
 class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = CommentSerializer
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
 
     def get_queryset(self):
@@ -83,16 +84,17 @@ class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class ProductListCreateView(generics.ListCreateAPIView):
     serializer_class = ProductSerializer
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsModerator]
     queryset = Product.objects.select_related('owner').all()
 
     def perform_create(self, serializer):
+        validate_product_creator_age(self.request)
         serializer.save(owner=self.request.user)
 
 
 class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ProductSerializer
-    authentication_classes = [TokenAuthentication]
+    authentication_classes = [JWTAuthentication]
     permission_classes = [IsModerator]
     queryset = Product.objects.select_related('owner').all()

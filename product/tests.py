@@ -1,8 +1,10 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.urls import reverse
+from datetime import date
 from rest_framework import status
 from rest_framework.test import APITestCase
+from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
 from .models import Comment, Post, Product
 
@@ -150,12 +152,32 @@ class UserAuthAPITest(APITestCase):
 
         response = self.client.post(
             reverse('api-login'),
-            {'email': 'login@example.com', 'password': 'SafePass12345!'},
+            {
+                'email': 'login@example.com',
+                'password': 'SafePass12345!',
+            },
             format='json',
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('token', response.data)
+        self.assertIn('access', response.data)
+        self.assertIn('refresh', response.data)
+
+    def test_login_includes_birthdate_in_jwt_claims(self):
+        user = User.objects.create_user(
+            email='birthdate@example.com',
+            password='SafePass12345!',
+            birthdate=date(1990, 5, 17),
+        )
+
+        response = self.client.post(
+            reverse('api-login'),
+            {'email': user.email, 'password': 'SafePass12345!'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(AccessToken(response.data['access'])['birthdate'], '1990-05-17')
 
     def test_superuser_requires_a_valid_phone_number(self):
         with self.assertRaisesMessage(ValueError, 'A phone number is required'):
@@ -237,7 +259,11 @@ class ProductModeratorPermissionTests(APITestCase):
         self.assertFalse(Product.objects.filter(title='New product').exists())
 
     def test_regular_user_can_create_product_but_not_edit_foreign_product(self):
-        self.client.force_authenticate(self.other_user)
+        self.other_user.birthdate = date.today().replace(year=date.today().year - 25)
+        self.other_user.save(update_fields=['birthdate'])
+        refresh = RefreshToken.for_user(self.other_user)
+        refresh['birthdate'] = self.other_user.birthdate.isoformat()
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
 
         create_response = self.client.post(
             reverse('product-list'),
@@ -253,3 +279,47 @@ class ProductModeratorPermissionTests(APITestCase):
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Product.objects.get(title='New product').owner, self.other_user)
         self.assertEqual(update_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_user_under_18_cannot_create_product(self):
+        self.other_user.birthdate = date.today().replace(year=date.today().year - 17)
+        self.other_user.save(update_fields=['birthdate'])
+        refresh = RefreshToken.for_user(self.other_user)
+        refresh['birthdate'] = self.other_user.birthdate.isoformat()
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+
+        response = self.client.post(
+            reverse('product-list'),
+            {'title': 'New product', 'description': 'Description', 'price': '10.00'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(str(response.data[0]), 'Вам должно быть 18 лет, чтобы создать продукт.')
+
+    def test_user_who_is_exactly_18_can_create_product(self):
+        self.other_user.birthdate = date.today().replace(year=date.today().year - 18)
+        self.other_user.save(update_fields=['birthdate'])
+        refresh = RefreshToken.for_user(self.other_user)
+        refresh['birthdate'] = self.other_user.birthdate.isoformat()
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+
+        response = self.client.post(
+            reverse('product-list'),
+            {'title': 'New product', 'description': 'Description', 'price': '10.00'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_user_without_birthdate_cannot_create_product(self):
+        refresh = RefreshToken.for_user(self.other_user)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+
+        response = self.client.post(
+            reverse('product-list'),
+            {'title': 'New product', 'description': 'Description', 'price': '10.00'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(str(response.data[0]), 'Укажите дату рождения, чтобы создать продукт.')

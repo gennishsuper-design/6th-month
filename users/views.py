@@ -1,7 +1,7 @@
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import generics, permissions
-from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .serializers import LoginResponseSerializer, LoginSerializer, RegisterSerializer
 
@@ -32,5 +32,11 @@ class LoginView(generics.GenericAPIView):
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        token, _ = Token.objects.get_or_create(user=serializer.validated_data['user'])
-        return Response(LoginResponseSerializer({'token': token.key}).data)
+        user = serializer.validated_data['user']
+        refresh = RefreshToken.for_user(user)
+        refresh['birthdate'] = user.birthdate.isoformat() if user.birthdate else None
+        return Response(
+            LoginResponseSerializer(
+                {'access': str(refresh.access_token), 'refresh': str(refresh)}
+            ).data
+        )

@@ -18,7 +18,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'phone_number', 'password']
+        fields = ['id', 'email', 'birthdate', 'phone_number', 'password']
         read_only_fields = ['id']
 
     def create(self, validated_data):
@@ -42,4 +42,5 @@ class LoginSerializer(serializers.Serializer):
 
 
 class LoginResponseSerializer(serializers.Serializer):
-    token = serializers.CharField()
+    access = serializers.CharField()
+    refresh = serializers.CharField()

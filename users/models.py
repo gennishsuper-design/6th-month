@@ -44,6 +44,7 @@ class UserManager(BaseUserManager):
 
 class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
+    birthdate = models.DateField(null=True, blank=True)
     phone_number = models.CharField(
         max_length=13,
         blank=True,
