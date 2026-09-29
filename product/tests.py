@@ -4,7 +4,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Comment, Post
+from .models import Comment, Post, Product
 
 User = get_user_model()
 
@@ -186,3 +186,70 @@ class UserAuthAPITest(APITestCase):
         response = self.client.get('/admin/users/user/')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class ProductModeratorPermissionTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(email='owner@example.com', password='pass12345')
+        self.moderator = User.objects.create_user(
+            email='moderator@example.com',
+            password='pass12345',
+            is_staff=True,
+        )
+        self.other_user = User.objects.create_user(email='buyer@example.com', password='pass12345')
+        self.product = Product.objects.create(
+            owner=self.owner,
+            title='Product',
+            description='Description',
+            price='12.50',
+        )
+
+    def test_staff_moderator_can_view_and_update_foreign_product(self):
+        self.client.force_authenticate(self.moderator)
+        url = reverse('product-detail', args=[self.product.id])
+
+        detail_response = self.client.get(url)
+        update_response = self.client.patch(url, {'price': '15.00'}, format='json')
+
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.product.refresh_from_db()
+        self.assertEqual(str(self.product.price), '15.00')
+
+    def test_staff_moderator_can_delete_foreign_product(self):
+        self.client.force_authenticate(self.moderator)
+
+        response = self.client.delete(reverse('product-detail', args=[self.product.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Product.objects.filter(pk=self.product.pk).exists())
+
+    def test_staff_moderator_cannot_create_product(self):
+        self.client.force_authenticate(self.moderator)
+
+        response = self.client.post(
+            reverse('product-list'),
+            {'title': 'New product', 'description': 'Description', 'price': '10.00'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Product.objects.filter(title='New product').exists())
+
+    def test_regular_user_can_create_product_but_not_edit_foreign_product(self):
+        self.client.force_authenticate(self.other_user)
+
+        create_response = self.client.post(
+            reverse('product-list'),
+            {'title': 'New product', 'description': 'Description', 'price': '10.00'},
+            format='json',
+        )
+        update_response = self.client.patch(
+            reverse('product-detail', args=[self.product.id]),
+            {'price': '15.00'},
+            format='json',
+        )
+
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Product.objects.get(title='New product').owner, self.other_user)
+        self.assertEqual(update_response.status_code, status.HTTP_403_FORBIDDEN)

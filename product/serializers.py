@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Comment, Post
+from .models import Comment, Post, Product
 
 
 class AuthorSerializer(serializers.Serializer):
@@ -25,3 +25,12 @@ class PostSerializer(serializers.ModelSerializer):
         model = Post
         fields = ['id', 'author', 'title', 'body', 'created_at', 'updated_at', 'is_published', 'comments']
         read_only_fields = ['id', 'author', 'created_at', 'updated_at', 'comments']
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    owner = AuthorSerializer(read_only=True)
+
+    class Meta:
+        model = Product
+        fields = ['id', 'owner', 'title', 'description', 'price']
+        read_only_fields = ['id', 'owner']

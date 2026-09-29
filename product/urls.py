@@ -1,6 +1,13 @@
 from django.urls import path
 
-from .views import CommentDetailView, CommentListCreateView, PostDetailView, PostListCreateView
+from .views import (
+    CommentDetailView,
+    CommentListCreateView,
+    PostDetailView,
+    PostListCreateView,
+    ProductDetailView,
+    ProductListCreateView,
+)
 from users.views import LoginView, RegisterView
 
 urlpatterns = [
@@ -11,4 +18,6 @@ urlpatterns = [
     path('api/v1/posts/<int:pk>/', PostDetailView.as_view(), name='post-detail'),
     path('api/v1/posts/<int:post_id>/comments/', CommentListCreateView.as_view(), name='comment-list'),
     path('api/v1/posts/<int:post_id>/comments/<int:pk>/', CommentDetailView.as_view(), name='comment-detail'),
+    path('api/v1/products/', ProductListCreateView.as_view(), name='product-list'),
+    path('api/v1/products/<int:pk>/', ProductDetailView.as_view(), name='product-detail'),
 ]

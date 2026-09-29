@@ -1,13 +1,27 @@
 from rest_framework import generics, permissions
 from rest_framework.authentication import TokenAuthentication
 
-from .models import Comment, Post
-from .serializers import CommentSerializer, PostSerializer
+from .models import Comment, Post, Product
+from .serializers import CommentSerializer, PostSerializer, ProductSerializer
 
 
 class IsOwnerOrReadOnly(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         return request.method in permissions.SAFE_METHODS or obj.author_id == request.user.id
+
+
+class IsModerator(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if request.method == 'POST':
+            return request.user.is_authenticated and not request.user.is_staff
+        return True
+
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return request.user.is_authenticated and (
+            request.user.is_staff or obj.owner_id == request.user.id
+        )
 
 
 class PostListCreateView(generics.ListCreateAPIView):
@@ -65,3 +79,20 @@ class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Comment.objects.select_related('author', 'post').filter(post_id=self.kwargs['post_id'])
+
+
+class ProductListCreateView(generics.ListCreateAPIView):
+    serializer_class = ProductSerializer
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsModerator]
+    queryset = Product.objects.select_related('owner').all()
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+
+class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = ProductSerializer
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsModerator]
+    queryset = Product.objects.select_related('owner').all()
