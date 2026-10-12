@@ -1,6 +1,7 @@
 from rest_framework import generics, permissions
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from common.redis_store import clear_product_cache
 from common.validators import validate_product_creator_age
 from .models import Comment, Post, Product
 from .serializers import CommentSerializer, PostSerializer, ProductSerializer
@@ -91,6 +92,7 @@ class ProductListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         validate_product_creator_age(self.request)
         serializer.save(owner=self.request.user)
+        clear_product_cache()
 
 
 class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):

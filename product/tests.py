@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.urls import reverse
 from django.test import override_settings
@@ -9,6 +10,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
+from common.redis_store import clear_product_cache, confirm_confirmation_code, save_confirmation_code
 from .models import Comment, Post, Product
 
 User = get_user_model()
@@ -359,3 +361,31 @@ class ProductModeratorPermissionTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(str(response.data[0]), 'Укажите дату рождения, чтобы создать продукт.')
+
+
+class RedisConfirmationCodeTests(APITestCase):
+    @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'redis-tests'}})
+    def test_confirmation_code_is_removed_after_use_and_has_ttl(self):
+        user_id = 42
+        cache.clear()
+        save_confirmation_code(user_id, '123456', ttl_seconds=300)
+
+        cache_key = f'confirmation_code:{user_id}'
+        self.assertEqual(cache.get(cache_key), '123456')
+        if hasattr(cache, 'ttl'):
+            self.assertGreaterEqual(cache.ttl(cache_key), 1)
+            self.assertLessEqual(cache.ttl(cache_key), 300)
+
+        self.assertTrue(confirm_confirmation_code(user_id, '123456'))
+        self.assertIsNone(cache.get(cache_key))
+
+    @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'redis-tests-products'}})
+    def test_new_product_creation_clears_cached_products(self):
+        cache.clear()
+        cache.set('products:list', [{'id': 1}], timeout=300)
+        cache.set('products:detail:1', {'id': 1}, timeout=300)
+
+        clear_product_cache()
+
+        self.assertIsNone(cache.get('products:list'))
+        self.assertIsNone(cache.get('products:detail:1'))
