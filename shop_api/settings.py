@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 import os
 from pathlib import Path
 
+from celery.schedules import crontab
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -153,6 +155,27 @@ AUTH_PASSWORD_VALIDATORS = [
 LANGUAGE_CODE = 'en-us'
 
 TIME_ZONE = 'UTC'
+
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/0')
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://127.0.0.1:6379/0')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_BEAT_SCHEDULE = {
+    'generate-daily-report-every-morning': {
+        'task': 'common.tasks.generate_daily_report',
+        'schedule': crontab(hour=8, minute=0),
+    },
+}
+
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'localhost')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '25'))
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'False').lower() == 'true'
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@example.com')
 
 USE_I18N = True
 

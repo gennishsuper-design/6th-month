@@ -3,6 +3,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.urls import reverse
 from django.test import override_settings
+from django.test import SimpleTestCase
 from datetime import date
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
@@ -11,9 +12,19 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
 from common.redis_store import clear_product_cache, confirm_confirmation_code, save_confirmation_code
+from common.tasks import clear_old_products_cache
 from .models import Comment, Post, Product
 
 User = get_user_model()
+
+
+class CeleryTaskTests(SimpleTestCase):
+    @patch('common.tasks.clear_product_cache')
+    def test_cache_task_clears_product_cache(self, clear_cache):
+        result = clear_old_products_cache.run()
+
+        clear_cache.assert_called_once_with()
+        self.assertEqual(result, 'Product cache cleared')
 
 
 class BlogAPITest(APITestCase):
