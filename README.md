@@ -34,17 +34,34 @@ API будет доступен по адресу `http://127.0.0.1:8000/`.
 
 ## Аутентификация
 
-Для регистрации отправьте email, пароль, при необходимости номер телефона и дату рождения:
+Для регистрации отправьте email, пароль, имя и фамилию, при необходимости номер телефона и дату рождения:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/auth/register/ \
   -H 'Content-Type: application/json' \
-  -d '{"email":"user@example.com", "password":"your-password", "birthdate":"2000-01-31"}'
+  -d '{"email":"user@example.com", "password":"your-password", "first_name":"Ada", "last_name":"Lovelace", "birthdate":"2000-01-31"}'
 ```
 
 Вход по email и паролю доступен через `POST /api/v1/auth/login/`. Ответ содержит JWT `access` и `refresh`; claim `birthdate` включён в оба токена.
 Старый адрес `/api/v1/auth/token/` оставлен как alias входа. Передавайте access-токен
 в защищенных запросах заголовком `Authorization: Bearer <access-token>`.
+
+### Вход через Google OAuth 2.0
+
+В Google Cloud Console создайте проект, настройте OAuth consent screen и создайте OAuth Client ID типа **Web application**. В Authorized redirect URIs добавьте точный адрес callback:
+`http://127.0.0.1:8000/api/v1/auth/google/callback/`.
+
+Перед запуском задайте значения из Google Cloud Console в `.env`:
+
+```env
+GOOGLE_OAUTH_CLIENT_ID=your-client-id
+GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
+GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:8000/api/v1/auth/google/callback/
+```
+
+Откройте `GET /api/v1/auth/google/`, возьмите `authorization_url` из ответа и перенаправьте туда браузер. После согласия Google вернет браузер на callback; сервер проверит OAuth `state`, обменяет authorization code на access token и получит профиль от Google. Для нового пользователя сохраняются `given_name`, `family_name`, `registration_source=google`; аккаунт активируется и `last_login` устанавливается при каждом успешном входе. Google-пользователю задается unusable password. Callback возвращает JWT `access` и `refresh` в JSON.
+
+Локальная регистрация сохраняет `registration_source=local`. Доступные значения поля: `local`, `google`, `facebook`.
 
 Номер телефона необязателен для обычного аккаунта. Для суперпользователя он обязателен
 и должен иметь код страны 996, например `+996555123456`.

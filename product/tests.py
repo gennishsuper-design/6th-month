@@ -1,7 +1,10 @@
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.urls import reverse
+from django.test import override_settings
 from datetime import date
+from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
@@ -131,6 +134,7 @@ class UserAuthAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = User.objects.get(email='new@example.com')
         self.assertEqual(user.phone_number, '')
+        self.assertEqual(user.registration_source, 'local')
         self.assertFalse(user.is_superuser)
 
     def test_registration_rejects_phone_number_without_996_prefix(self):
@@ -162,6 +166,38 @@ class UserAuthAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('access', response.data)
         self.assertIn('refresh', response.data)
+        self.assertIsNotNone(User.objects.get(email='login@example.com').last_login)
+
+    @override_settings(
+        GOOGLE_OAUTH_CLIENT_ID='test-client-id',
+        GOOGLE_OAUTH_CLIENT_SECRET='test-client-secret',
+        GOOGLE_OAUTH_REDIRECT_URI='http://testserver/api/v1/auth/google/callback/',
+    )
+    @patch('users.views._google_userinfo')
+    def test_google_callback_creates_active_user_with_profile(self, google_userinfo):
+        google_userinfo.return_value = {
+            'email': 'google@example.com',
+            'verified_email': True,
+            'given_name': 'Ada',
+            'family_name': 'Lovelace',
+        }
+        start_response = self.client.get(reverse('google-oauth-start'))
+        self.assertEqual(start_response.status_code, status.HTTP_200_OK)
+        state = parse_qs(urlparse(start_response.data['authorization_url']).query)['state'][0]
+
+        response = self.client.get(
+            reverse('google-oauth-callback'),
+            {'code': 'test-code', 'state': state},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', response.data)
+        user = User.objects.get(email='google@example.com')
+        self.assertEqual(user.first_name, 'Ada')
+        self.assertEqual(user.last_name, 'Lovelace')
+        self.assertEqual(user.registration_source, 'google')
+        self.assertTrue(user.is_active)
+        self.assertIsNotNone(user.last_login)
 
     def test_login_includes_birthdate_in_jwt_claims(self):
         user = User.objects.create_user(
