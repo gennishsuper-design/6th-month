@@ -8,10 +8,17 @@ from .views import (
     ProductDetailView,
     ProductListCreateView,
 )
-from users.views import GoogleOAuthCallbackView, GoogleOAuthStartView, LoginView, RegisterView
+from users.views import (
+    ConfirmRegistrationView,
+    GoogleOAuthCallbackView,
+    GoogleOAuthStartView,
+    LoginView,
+    RegisterView,
+)
 
 urlpatterns = [
     path('api/v1/auth/register/', RegisterView.as_view(), name='api-register'),
+    path('api/v1/auth/confirm/', ConfirmRegistrationView.as_view(), name='api-confirm-registration'),
     path('api/v1/auth/login/', LoginView.as_view(), name='api-login'),
     path('api/v1/auth/token/', LoginView.as_view(), name='api-token'),
     path('api/v1/auth/google/', GoogleOAuthStartView.as_view(), name='google-oauth-start'),

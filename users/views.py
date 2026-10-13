@@ -6,6 +6,7 @@ from urllib.request import Request, urlopen
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.mail import send_mail
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -13,7 +14,13 @@ from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .serializers import LoginResponseSerializer, LoginSerializer, RegisterSerializer
+from common.redis_store import confirm_confirmation_code, save_confirmation_code
+from .serializers import (
+    ConfirmRegistrationSerializer,
+    LoginResponseSerializer,
+    LoginSerializer,
+    RegisterSerializer,
+)
 
 
 User = get_user_model()
@@ -65,6 +72,49 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
+
+    def perform_create(self, serializer):
+        user = serializer.save(is_active=False)
+        code = f'{secrets.randbelow(1_000_000):06d}'
+        save_confirmation_code(user.pk, code)
+        send_mail(
+            'Confirm your Shop API account',
+            f'Your confirmation code is {code}. It expires in 5 minutes.',
+            settings.DEFAULT_FROM_EMAIL,
+            [user.email],
+            fail_silently=False,
+        )
+
+
+class ConfirmRegistrationView(generics.GenericAPIView):
+    serializer_class = ConfirmRegistrationSerializer
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    @extend_schema(
+        request=ConfirmRegistrationSerializer,
+        responses={200: None},
+        summary='Confirm registration with a one-time code',
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = User.objects.filter(
+            email__iexact=serializer.validated_data['email'],
+            is_active=False,
+        ).first()
+        if user is None or not confirm_confirmation_code(
+            user.pk,
+            serializer.validated_data['code'],
+        ):
+            return Response(
+                {'detail': 'Invalid or expired confirmation code.'},
+                status=400,
+            )
+
+        user.is_active = True
+        user.save(update_fields=['is_active'])
+        return Response({'detail': 'Account confirmed.'})
 
 
 class LoginView(generics.GenericAPIView):

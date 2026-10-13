@@ -1,4 +1,6 @@
+import re
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.urls import reverse
@@ -11,7 +13,12 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
-from common.redis_store import clear_product_cache, confirm_confirmation_code, save_confirmation_code
+from common.redis_store import (
+    clear_product_cache,
+    confirm_confirmation_code,
+    get_confirmation_code,
+    save_confirmation_code,
+)
 from common.tasks import clear_old_products_cache
 from .models import Comment, Post, Product
 
@@ -136,7 +143,15 @@ class BlogAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
+@override_settings(
+    CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'auth-code-tests'}},
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+)
 class UserAuthAPITest(APITestCase):
+    def setUp(self):
+        cache.clear()
+        mail.outbox.clear()
+
     def test_registration_allows_missing_phone_number(self):
         response = self.client.post(
             reverse('api-register'),
@@ -149,6 +164,36 @@ class UserAuthAPITest(APITestCase):
         self.assertEqual(user.phone_number, '')
         self.assertEqual(user.registration_source, 'local')
         self.assertFalse(user.is_superuser)
+        self.assertFalse(user.is_active)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIsNotNone(get_confirmation_code(user.pk))
+
+    def test_confirmation_activates_account_and_consumes_code_once(self):
+        registration_response = self.client.post(
+            reverse('api-register'),
+            {'email': 'new@example.com', 'password': 'SafePass12345!'},
+            format='json',
+        )
+        user = User.objects.get(email='new@example.com')
+        code = re.search(r'\b\d{6}\b', mail.outbox[0].body).group()
+
+        response = self.client.post(
+            reverse('api-confirm-registration'),
+            {'email': user.email, 'code': code},
+            format='json',
+        )
+        repeated_response = self.client.post(
+            reverse('api-confirm-registration'),
+            {'email': user.email, 'code': code},
+            format='json',
+        )
+
+        self.assertEqual(registration_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(repeated_response.status_code, status.HTTP_400_BAD_REQUEST)
+        user.refresh_from_db()
+        self.assertTrue(user.is_active)
+        self.assertIsNone(get_confirmation_code(user.pk))
 
     def test_registration_rejects_phone_number_without_996_prefix(self):
         response = self.client.post(
@@ -259,6 +304,7 @@ class UserAuthAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
+@override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'product-api-tests'}})
 class ProductModeratorPermissionTests(APITestCase):
     def setUp(self):
         self.owner = User.objects.create_user(email='owner@example.com', password='pass12345')
@@ -329,6 +375,28 @@ class ProductModeratorPermissionTests(APITestCase):
         self.assertEqual(Product.objects.get(title='New product').owner, self.other_user)
         self.assertEqual(update_response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_product_creation_invalidates_cached_product_list(self):
+        self.other_user.birthdate = date.today().replace(year=date.today().year - 25)
+        self.other_user.save(update_fields=['birthdate'])
+        refresh = RefreshToken.for_user(self.other_user)
+        refresh['birthdate'] = self.other_user.birthdate.isoformat()
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+
+        list_url = reverse('product-list')
+        first_response = self.client.get(list_url)
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(first_response.data['count'], 1)
+
+        create_response = self.client.post(
+            list_url,
+            {'title': 'New product', 'description': 'Description', 'price': '10.00'},
+            format='json',
+        )
+        second_response = self.client.get(list_url)
+
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_response.data['count'], 2)
+
     def test_user_under_18_cannot_create_product(self):
         self.other_user.birthdate = date.today().replace(year=date.today().year - 17)
         self.other_user.save(update_fields=['birthdate'])
@@ -379,7 +447,7 @@ class RedisConfirmationCodeTests(APITestCase):
     def test_confirmation_code_is_removed_after_use_and_has_ttl(self):
         user_id = 42
         cache.clear()
-        save_confirmation_code(user_id, '123456', ttl_seconds=300)
+        save_confirmation_code(user_id, '123456')
 
         cache_key = f'confirmation_code:{user_id}'
         self.assertEqual(cache.get(cache_key), '123456')
@@ -389,6 +457,16 @@ class RedisConfirmationCodeTests(APITestCase):
 
         self.assertTrue(confirm_confirmation_code(user_id, '123456'))
         self.assertIsNone(cache.get(cache_key))
+
+    @patch('common.redis_store.cache.set')
+    def test_confirmation_code_ttl_is_five_minutes(self, cache_set):
+        save_confirmation_code(42, '123456')
+
+        cache_set.assert_called_once_with(
+            'confirmation_code:42',
+            '123456',
+            timeout=300,
+        )
 
     @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'redis-tests-products'}})
     def test_new_product_creation_clears_cached_products(self):

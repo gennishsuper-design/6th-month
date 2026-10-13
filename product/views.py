@@ -1,5 +1,7 @@
 from rest_framework import generics, permissions
+from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from django.core.cache import cache
 
 from common.redis_store import clear_product_cache
 from common.validators import validate_product_creator_age
@@ -87,7 +89,18 @@ class ProductListCreateView(generics.ListCreateAPIView):
     serializer_class = ProductSerializer
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsModerator]
-    queryset = Product.objects.select_related('owner').all()
+    queryset = Product.objects.select_related('owner').order_by('pk')
+
+    def list(self, request, *args, **kwargs):
+        cache_key = f'products:list:{request.get_full_path()}'
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
+
+        response = super().list(request, *args, **kwargs)
+        if response.status_code == 200:
+            cache.set(cache_key, response.data, timeout=300)
+        return response
 
     def perform_create(self, serializer):
         validate_product_creator_age(self.request)
@@ -100,3 +113,22 @@ class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsModerator]
     queryset = Product.objects.select_related('owner').all()
+
+    def retrieve(self, request, *args, **kwargs):
+        cache_key = f'products:detail:{kwargs["pk"]}'
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
+
+        response = super().retrieve(request, *args, **kwargs)
+        if response.status_code == 200:
+            cache.set(cache_key, response.data, timeout=300)
+        return response
+
+    def perform_update(self, serializer):
+        serializer.save()
+        clear_product_cache()
+
+    def perform_destroy(self, instance):
+        instance.delete()
+        clear_product_cache()

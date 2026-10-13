@@ -51,13 +51,23 @@ Compose запускает Django, PostgreSQL, Redis, Celery worker и Celery be
 
 ## Аутентификация
 
-Для регистрации отправьте email, пароль, имя и фамилию, при необходимости номер телефона и дату рождения:
+Для регистрации отправьте email, пароль, имя и фамилию, при необходимости номер телефона и дату рождения. После регистрации аккаунт будет неактивен, а одноразовый код подтверждения придёт на email. Код хранится в Redis 5 минут и удаляется после успешного подтверждения:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/auth/register/ \
   -H 'Content-Type: application/json' \
   -d '{"email":"user@example.com", "password":"your-password", "first_name":"Ada", "last_name":"Lovelace", "birthdate":"2000-01-31"}'
 ```
+
+Подтвердите аккаунт запросом `POST /api/v1/auth/confirm/`:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/auth/confirm/ \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com", "code":"123456"}'
+```
+
+При локальном запуске с console email backend код отображается в выводе сервера; в Docker его можно посмотреть командой `docker compose logs -f web`.
 
 Вход по email и паролю доступен через `POST /api/v1/auth/login/`. Ответ содержит JWT `access` и `refresh`; claim `birthdate` включён в оба токена.
 Старый адрес `/api/v1/auth/token/` оставлен как alias входа. Передавайте access-токен
@@ -90,6 +100,7 @@ GOOGLE_OAUTH_REDIRECT_URI=http://127.0.0.1:8000/api/v1/auth/google/callback/
 
 - `GET /api/v1/posts/` - список опубликованных постов для гостя, список всех постов для пользователя;
 - `POST /api/v1/auth/register/` - регистрация с email и паролем;
+- `POST /api/v1/auth/confirm/` - подтверждение регистрации одноразовым кодом;
 - `POST /api/v1/auth/login/` - вход по email и паролю и получение токена;
 - `GET /api/v1/products/` - список продуктов;
 - `POST /api/v1/products/` - создать продукт (для обычного авторизованного пользователя);
